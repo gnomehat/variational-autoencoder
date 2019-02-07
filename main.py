@@ -21,14 +21,18 @@ parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
+parser.add_argument('--beta', type=float, default=1., metavar='B',
+                    help='Beta value for attenuating Kullbach-Liebler loss term')
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
 
 torch.manual_seed(args.seed)
 
+print('Detecting CUDA device...')
 device = torch.device("cuda" if args.cuda else "cpu")
 
+print('Loading dataset...')
 kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
 train_loader = torch.utils.data.DataLoader(
     datasets.MNIST('../data', train=True, download=True,
@@ -38,15 +42,15 @@ test_loader = torch.utils.data.DataLoader(
     datasets.MNIST('../data', train=False, transform=transforms.ToTensor()),
     batch_size=args.batch_size, shuffle=True, **kwargs)
 
-ts = TimeSeries('MNIST VAE', args.epochs * len(train_loader))
+ts = TimeSeries('MNIST VAE', args.epochs * len(train_loader), tensorboard=True)
 
 class VAE(nn.Module):
     def __init__(self):
         super(VAE, self).__init__()
 
-        self.fc1 = nn.Linear(784, 400)
-        self.fc21 = nn.Linear(400, 20)
-        self.fc22 = nn.Linear(400, 20)
+        self.fc1 = nn.Linear(784, 402)
+        self.fc21 = nn.Linear(402, 20)
+        self.fc22 = nn.Linear(402, 20)
         self.fc3 = nn.Linear(20, 400)
         self.fc4 = nn.Linear(400, 784)
 
@@ -64,7 +68,7 @@ class VAE(nn.Module):
 
     def decode(self, z):
         h3 = F.relu(self.fc3(z))
-        return F.sigmoid(self.fc4(h3))
+        return torch.sigmoid(self.fc4(h3))
 
     def forward(self, x):
         mu, logvar = self.encode(x.view(-1, 784))
@@ -72,13 +76,16 @@ class VAE(nn.Module):
         return self.decode(z), mu, logvar
 
 
+print('Building model...')
 model = VAE().to(device)
+
+print('Intializing optimizer...')
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
 
 # Reconstruction + KL divergence losses summed over all elements and batch
 def loss_function(recon_x, x, mu, logvar):
-    BCE = F.binary_cross_entropy(recon_x, x.view(-1, 784), size_average=False)
+    BCE = F.binary_cross_entropy(recon_x, x.view(-1, 784), reduction="sum")
 
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
@@ -86,7 +93,7 @@ def loss_function(recon_x, x, mu, logvar):
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
     KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
-    return BCE + KLD
+    return BCE + args.beta * KLD
 
 
 def train(epoch):
@@ -109,7 +116,7 @@ def train(epoch):
 
     print('====> Epoch: {} Average loss: {:.4f}'.format(
           epoch, train_loss / len(train_loader.dataset)))
-    print(ts)
+    #print(ts)
 
 
 def test(epoch):
@@ -130,10 +137,11 @@ def test(epoch):
     test_loss /= len(test_loader.dataset)
     print('====> Test set loss: {:.4f}'.format(test_loss))
     ts.collect('Test Loss', test_loss)
-    print(ts)
+    #print(ts)
 
 
 os.makedirs('results', exist_ok=True)
+print('Training model...')
 for epoch in range(1, args.epochs + 1):
     train(epoch)
     test(epoch)
