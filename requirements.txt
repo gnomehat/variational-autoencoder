@@ -2,4 +2,4 @@ torch
 torchvision
 tqdm
 six
-git+https://github.com/lwneal/logutil
+git+https://github.com/lwneal/logutil#egg=logutil
