@@ -9,6 +9,20 @@ from torchvision import datasets, transforms
 from torchvision.utils import save_image
 
 from logutil import TimeSeries
+import signal
+import sys
+
+# Quit silently on Ctrl+C
+def signal_handler(sig, frame):
+    sys.exit(0)
+signal.signal(signal.SIGINT, signal_handler)
+
+
+print('')
+print('\t\tPyTorch Variational Autoencoder')
+print('')
+print('')
+print('Initializing...')
 
 parser = argparse.ArgumentParser(description='VAE MNIST Example')
 parser.add_argument('--batch-size', type=int, default=128, metavar='N',
@@ -17,6 +31,8 @@ parser.add_argument('--epochs', type=int, default=10, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='disables CUDA training')
+parser.add_argument('--tensorboard', action='store_true', default=False,
+                    help='Generate Tensorboard graphs of training loss')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
@@ -42,15 +58,16 @@ test_loader = torch.utils.data.DataLoader(
     datasets.MNIST('../data', train=False, transform=transforms.ToTensor()),
     batch_size=args.batch_size, shuffle=True, **kwargs)
 
-ts = TimeSeries('MNIST VAE', args.epochs * len(train_loader), tensorboard=True)
+max_iters = args.epochs * len(train_loader)
+ts = TimeSeries('MNIST VAE', max_iters, tensorboard=args.tensorboard)
 
 class VAE(nn.Module):
     def __init__(self):
         super(VAE, self).__init__()
 
-        self.fc1 = nn.Linear(784, 402)
-        self.fc21 = nn.Linear(402, 20)
-        self.fc22 = nn.Linear(402, 20)
+        self.fc1 = nn.Linear(784, 500)
+        self.fc21 = nn.Linear(500, 20)
+        self.fc22 = nn.Linear(500, 20)
         self.fc3 = nn.Linear(20, 400)
         self.fc4 = nn.Linear(400, 784)
 
@@ -150,3 +167,4 @@ for epoch in range(1, args.epochs + 1):
         sample = model.decode(sample).cpu()
         save_image(sample.view(64, 1, 28, 28),
                    'results/sample_' + str(epoch) + '.png')
+print(ts)
